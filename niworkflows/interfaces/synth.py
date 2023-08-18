@@ -1,4 +1,14 @@
-
+from nipype.interfaces.base import (
+    traits,
+    BaseInterfaceInputSpec,
+    TraitedSpec,
+    File,
+    SimpleInterface,
+)
+from nipype.interfaces.freesurfer.base import FSTraitedSpecOpenMP, FSCommandOpenMP
+import os.path as op
+import nibabel as nb
+import shutil
 
 def _copyxform(ref_image, out_image, message=None):
     # Read in reference and output
