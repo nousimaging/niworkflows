@@ -488,7 +488,7 @@ def init_enhance_and_skullstrip_bold_wf(
     # fmt: off
     workflow.connect([
         (inputnode, n4_correct, [("in_file", "input_image")]),
-        (n4_correct, synthstrip, [("output_image", "input_file")]),
+        (n4_correct, synthstrip, [("output_image", "input_image")]),
         (synthstrip, outputnode, [("out_brain", "in_file")]),
         (synthstrip, outputnode, [("out_brain_mask", "in_mask")]),
         (n4_correct, outputnode, [("output_image", "bias_corrected_file")]),
