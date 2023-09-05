@@ -25,6 +25,7 @@ from packaging.version import parse as parseversion, Version
 
 from nipype.pipeline import engine as pe
 from nipype.interfaces import utility as niu
+from nipype.interfaces import afni
 
 from templateflow.api import get as get_template
 
@@ -35,7 +36,7 @@ from ..interfaces.fixes import (
     FixHeaderApplyTransforms as ApplyTransforms,
     FixN4BiasFieldCorrection as N4BiasFieldCorrection,
 )
-from ..interfaces.header import CopyXForm, ValidateImage, MatchHeader
+from ..interfaces.header import CopyHeader, ValidateImage, MatchHeader
 from ..interfaces.reportlets.masks import SimpleShowMaskRPT
 from ..utils.connections import listify
 from ..utils.misc import pass_dummy_scans as _pass_dummy_scans
@@ -366,6 +367,7 @@ def init_enhance_and_skullstrip_bold_wf(
     from ..interfaces.nibabel import ApplyMask, BinaryDilation
     from ..interfaces.fixes import FixN4BiasFieldCorrection as N4BiasFieldCorrection
     from ..interfaces.synth import FixHeaderSynthStrip
+    from niworkflows.interfaces.nibabel import  Binarize
 
     workflow = Workflow(name=name)
     inputnode = pe.Node(
@@ -389,108 +391,115 @@ def init_enhance_and_skullstrip_bold_wf(
     )
     n4_correct.inputs.rescale_intensities = True
 
-    synthstrip = pe.Node(FixHeaderSynthStrip(), name = "synthstrip")
-
-    #first_dilate = pe.Node(BinaryDilation(radius=6), name="first_dilate")
-    #first_mask = pe.Node(ApplyMask(), name="first_mask")
+    sstrip = pe.Node(afni.SkullStrip(outputtype="NIFTI_GZ"), name="skullstrip")
+    fixhdr_strip = pe.Node(CopyHeader(), name="fixhdr_strip", mem_gb=0.1)
 
     # Use AFNI's unifize for T2 contrast & fix header
-    #unifize = pe.Node(
-        #afni.Unifize(
-            #t2=True,
-            #outputtype="NIFTI_GZ",
+    unifize = pe.Node(
+        afni.Unifize(
+            t2=True,
+            outputtype="NIFTI_GZ",
             # Default -clfrac is 0.1, 0.4 was too conservative
             # -rbt because I'm a Jedi AFNI Master (see 3dUnifize's documentation)
-            #args="-clfrac 0.2 -rbt 18.3 65.0 90.0",
-            #out_file="uni.nii.gz",
-        #),
-        #name="unifize",
-    #)
-    #fixhdr_unifize = pe.Node(CopyXForm(), name="fixhdr_unifize", mem_gb=0.1)
+            args="-clfrac 0.2 -rbt 18.3 65.0 90.0",
+            out_file="uni.nii.gz",
+        ),
+        name="unifize",
+    )
+    fixhdr_unifize = pe.Node(CopyHeader(), name="fixhdr_unifize", mem_gb=0.1)
 
-    if not pre_mask:
-        from nipype.interfaces.ants.utils import AI
+    #create mask
+    automask = pe.Node(
+        afni.Automask(
+            outputtype='NIFTI_GZ',
+            num_threads=1,
+        ),
+        name="automask"
+    )
+    fixhdr_automask = pe.Node(CopyHeader(), name="fixhdr_automask", mem_gb=0.1)
 
-        bold_template = get_template(
-            "MNI152NLin2009cAsym", resolution=2, desc="fMRIPrep", suffix="boldref"
-        )
-        brain_mask = get_template(
-            "MNI152NLin2009cAsym", resolution=2, desc="brain", suffix="mask"
-        )
+    from nipype.interfaces.ants.utils import AI
 
-        # Initialize transforms with antsAI
-        init_aff = pe.Node(
-            AI(
-                fixed_image=str(bold_template),
-                fixed_image_mask=str(brain_mask),
-                metric=("Mattes", 32, "Regular", 0.2),
-                transform=("Affine", 0.1),
-                search_factor=(20, 0.12),
-                principal_axes=False,
-                convergence=(10, 1e-6, 10),
-                verbose=True,
+    bold_template = get_template(
+        "MNI152NLin2009cAsym", resolution=2, desc="fMRIPrep", suffix="boldref"
+    )
+    brain_mask = get_template(
+        "MNI152NLin2009cAsym", resolution=2, desc="brain", suffix="mask"
+    )
+
+    # Initialize transforms with antsAI
+    init_aff = pe.Node(
+        AI(
+            fixed_image=str(bold_template),
+            fixed_image_mask=str(brain_mask),
+            metric=("Mattes", 32, "Regular", 0.2),
+            transform=("Affine", 0.1),
+            search_factor=(20, 0.12),
+            principal_axes=False,
+            convergence=(10, 1e-6, 10),
+            verbose=True,
+        ),
+        name="init_aff",
+        n_procs=omp_nthreads,
+    )
+
+    # Registration().version may be None
+    if parseversion(Registration().version or "0.0.0") > Version("2.2.0"):
+        init_aff.inputs.search_grid = (40, (0, 40, 40))
+
+    # Set up spatial normalization
+    norm = pe.Node(
+        Registration(from_file=data.load("epi_atlasbased_brainmask.json")),
+        name="norm",
+        n_procs=omp_nthreads,
+    )
+    norm.inputs.fixed_image = str(bold_template)
+    map_brainmask = pe.Node(
+        ApplyTransforms(
+            interpolation="Linear",
+            # Use the higher resolution and probseg for numerical stability in rounding
+            input_image=str(
+                get_template(
+                    "MNI152NLin2009cAsym",
+                    resolution=1,
+                    label="brain",
+                    suffix="probseg",
+                )
             ),
-            name="init_aff",
-            n_procs=omp_nthreads,
-        )
+        ),
+        name="map_brainmask",
+    )
+    # Ensure mask's header matches reference's
+    check_hdr = pe.Node(MatchHeader(), name="check_hdr", run_without_submitting=True)
 
-        # Registration().version may be None
-        if parseversion(Registration().version or "0.0.0") > Version("2.2.0"):
-            init_aff.inputs.search_grid = (40, (0, 40, 40))
-
-        # Set up spatial normalization
-        norm = pe.Node(
-            Registration(from_file=data.load("epi_atlasbased_brainmask.json")),
-            name="norm",
-            n_procs=omp_nthreads,
-        )
-        norm.inputs.fixed_image = str(bold_template)
-        map_brainmask = pe.Node(
-            ApplyTransforms(
-                interpolation="Linear",
-                # Use the higher resolution and probseg for numerical stability in rounding
-                input_image=str(
-                    get_template(
-                        "MNI152NLin2009cAsym",
-                        resolution=1,
-                        label="brain",
-                        suffix="probseg",
-                    )
-                ),
-            ),
-            name="map_brainmask",
-        )
-        # Ensure mask's header matches reference's
-        check_hdr = pe.Node(MatchHeader(), name="check_hdr", run_without_submitting=True)
-
-        # fmt: off
-        workflow.connect([
-            (inputnode, check_hdr, [("in_file", "reference")]),
-            (inputnode, init_aff, [("in_file", "moving_image")]),
-            (inputnode, map_brainmask, [("in_file", "reference_image")]),
-            (inputnode, norm, [("in_file", "moving_image")]),
-            (init_aff, norm, [("output_transform", "initial_moving_transform")]),
-            (norm, map_brainmask, [
-                ("reverse_invert_flags", "invert_transform_flags"),
-                ("reverse_transforms", "transforms"),
-            ]),
-            (map_brainmask, check_hdr, [("output_image", "in_file")]),
-            (check_hdr, n4_correct, [("out_file", "weight_image")]),
-        ])
+    # fmt: off
+    workflow.connect([
+        (inputnode, check_hdr, [("in_file", "reference")]),
+        (inputnode, init_aff, [("in_file", "moving_image")]),
+        (inputnode, map_brainmask, [("in_file", "reference_image")]),
+        (inputnode, norm, [("in_file", "moving_image")]),
+        (init_aff, norm, [("output_transform", "initial_moving_transform")]),
+        (norm, map_brainmask, [
+            ("reverse_invert_flags", "invert_transform_flags"),
+            ("reverse_transforms", "transforms"),
+        ]),
+        (map_brainmask, check_hdr, [("output_image", "in_file")]),
+        (check_hdr, n4_correct, [("out_file", "weight_image")]),
+    ])
         # fmt: on
-    else:
-        # fmt: off
-        workflow.connect([
-            (inputnode, n4_correct, [("pre_mask", "weight_image")]),
-        ])
-        # fmt: on
+
 
     # fmt: off
     workflow.connect([
         (inputnode, n4_correct, [("in_file", "input_image")]),
-        (n4_correct, synthstrip, [("output_image", "input_image")]),
-        (synthstrip, outputnode, [("out_brain", "skull_stripped_file")]),
-        (synthstrip, outputnode, [("out_brain_mask", "mask_file")]),
+        (n4_correct, sstrip, [("output_image", "in_file")]),
+        (sstrip, fixhdr_strip, [("out_file","in_file")]),
+        (fixhdr_strip, unifize, [("out_file", "in_file")]),
+        (unifize, fixhdr_unifize, [("out_file","in_file")]),
+        (fixhdr_unifize, automask, [("out_file","in_file")]),
+        (automask, fixhdr_automask, [("out_file","in_file")]),
+        (fixhdr_unifize, outputnode, [("out_file", "skull_stripped_file")]),
+        (fixhdr_automask, outputnode, [("out_file", "mask_file")]),
         (n4_correct, outputnode, [("output_image", "bias_corrected_file")]),
     ])
     # fmt: on
