@@ -17,14 +17,6 @@ class _SynthStripInputSpec(TraitedSpec):
     input_image = File(
         exists=True,
         mandatory=True)
-    no_csf = traits.Bool(
-        desc="Exclude CSF from brain border.",
-        mandatory=False)
-    border = traits.Int(
-        desc="Mask border threshold in mm. Default is 1.",
-        mandatory=False)
-    gpu = traits.Bool(mandatory=False)
-
 
 class _SynthStripOutputSpec(TraitedSpec):
     out_brain = File(exists=True)
@@ -94,7 +86,6 @@ class SynthStrip(SimpleInterface):
         copyxform(self.inputs.input_image,
                   outmask_fname)
 
-        1/0
         #store results
         self._results['out_brain'] = outbrain_fname
         self._results['out_brain_mask'] = outmask_fname
