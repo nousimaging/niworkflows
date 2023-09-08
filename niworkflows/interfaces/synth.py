@@ -60,7 +60,7 @@ class SynthStrip(SimpleInterface):
 
             newimg = resampled.__class__(resampled.get_fdata(), orig.affine, header)
             newimg.to_filename(out_image)
-
+        print(str(self.inputs.input_image))
         #set base command
         base_cmd = "python /opt/freesurfer/python/scripts/mri_synthstrip "
 
@@ -79,16 +79,12 @@ class SynthStrip(SimpleInterface):
         outmask=outmask_fname
         )
 
-        #add any optional arguments
-        opt_args = ""
-        if self.inputs.gpu:
-            opt_args = opt_args + "-g "
-        if self.inputs.no_csf:
-            opt_args = opt_args + "--no-csf "
-        opt_args = opt_args + "-b {bord}".format(bord=self.inputs.border)
-
         #combine and run
-        full_cmd = base_cmd + mandatory_args + opt_args
+        full_cmd = base_cmd + mandatory_args
+        print(str(self.inputs.input_image))
+        print(full_cmd)
+        os.system("which python")
+        os.system("which mri_synthstrip")
         os.system(full_cmd)
 
         #rewrite headers
@@ -98,8 +94,8 @@ class SynthStrip(SimpleInterface):
         copyxform(self.inputs.input_image,
                   outmask_fname)
 
+        1/0
         #store results
         self._results['out_brain'] = outbrain_fname
         self._results['out_brain_mask'] = outmask_fname
-
         return runtime
