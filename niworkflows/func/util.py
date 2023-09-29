@@ -364,7 +364,6 @@ def init_enhance_and_skullstrip_bold_wf(
         reportlet for the skull-stripping
 
     """
-    from ..interfaces.nibabel import ApplyMask, BinaryDilation
 
     workflow = Workflow(name=name)
     inputnode = pe.Node(
@@ -380,7 +379,10 @@ def init_enhance_and_skullstrip_bold_wf(
     # Run N4 normally, force num_threads=1 for stability (images are small, no need for >1)
     n4_correct = pe.Node(
         N4BiasFieldCorrection(
-            dimension=3, copy_header=True, bspline_fitting_distance=200
+            dimension=3, 
+            copy_header=True, 
+            bspline_fitting_distance=200,
+            output_image="n4_corrected.nii"
         ),
         shrink_factor=2,
         name="n4_correct",
@@ -389,20 +391,6 @@ def init_enhance_and_skullstrip_bold_wf(
     n4_correct.inputs.rescale_intensities = True
 
     synthstrip = pe.Node(SynthStrip(), name="synthstrip")
-
-    # Use AFNI's unifize for T2 contrast & fix header
-    #unifize = pe.Node(
-    #    afni.Unifize(
-    #        t2=True,
-    #        outputtype="NIFTI_GZ",
-    #        # Default -clfrac is 0.1, 0.4 was too conservative
-    #        # -rbt because I'm a Jedi AFNI Master (see 3dUnifize's documentation)
-    #        args="-clfrac 0.2 -rbt 18.3 65.0 90.0",
-    #        out_file="uni.nii.gz",
-    #    ),
-    #    name="unifize",
-    #)
-    #fixhdr_unifize = pe.Node(CopyXForm(), name="fixhdr_unifize", mem_gb=0.1)
 
     if not pre_mask:
         from nipype.interfaces.ants.utils import AI
