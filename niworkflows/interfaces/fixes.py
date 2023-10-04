@@ -24,11 +24,7 @@ import os
 
 import nibabel as nb
 
-from nipype.interfaces.base import (
-    traits,
-    InputMultiObject,
-    File,
-)
+from nipype.interfaces.base import traits, InputMultiObject, File
 from nipype.utils.filemanip import fname_presuffix
 from nipype.interfaces.ants.resampling import ApplyTransforms, ApplyTransformsInputSpec
 from nipype.interfaces.ants.registration import (
@@ -176,4 +172,3 @@ class FixN4BiasFieldCorrection(VanillaN4):
         outputs = super()._list_outputs()
         outputs["negative_values"] = self._negative_values
         return outputs
-    
