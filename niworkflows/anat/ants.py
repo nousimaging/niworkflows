@@ -227,6 +227,7 @@ def init_brain_extraction_wf(
                 "bias_image",
                 "out_segm",
                 "out_tpms",
+                "base_segm",
             ]
         ),
         name="outputnode",
@@ -485,6 +486,7 @@ def init_brain_extraction_wf(
                 ("outputnode.out_mask", "out_mask"),
                 ("outputnode.out_segm", "out_segm"),
                 ("outputnode.out_tpms", "out_tpms"),
+                ("outputnode.base_segm", "base_segm")
             ]),
         ])
         # fmt: on
@@ -589,7 +591,7 @@ def init_atropos_wf(
     """
     wf = pe.Workflow(name)
 
-    out_fields = ["bias_corrected", "bias_image", "out_mask", "out_segm", "out_tpms"]
+    out_fields = ["bias_corrected", "bias_image", "out_mask", "out_segm", "out_tpms", "base_segm"]
 
     inputnode = pe.Node(
         niu.IdentityInterface(
@@ -821,6 +823,7 @@ def init_atropos_wf(
         (depad_mask, msk_conform, [("output_image", "in_mask")]),
         (msk_conform, copy_xform, [("out", "out_mask")]),
         (depad_segm, copy_xform, [("output_image", "out_segm")]),
+        (atropos, copy_xform, [("classified_image", "base_segm")]),
         (merge_tpms, copy_xform, [("out", "out_tpms")]),
         (atropos, sel_wm, [("posteriors", "inlist")]),
         (sel_wm, copy_xform_wm, [("out", "wm_map")]),
@@ -836,6 +839,7 @@ def init_atropos_wf(
             ("out_mask", "out_mask"),
             ("out_segm", "out_segm"),
             ("out_tpms", "out_tpms"),
+            ("base_segm","base_segm"),
         ]),
     ])
     # fmt: on
@@ -969,6 +973,7 @@ def init_n4_only_wf(
                 "bias_image",
                 "out_segm",
                 "out_tpms",
+                "base_segm",
             ]
         ),
         name="outputnode",
@@ -1040,6 +1045,7 @@ def init_n4_only_wf(
                 ("outputnode.bias_image", "bias_image"),
                 ("outputnode.out_segm", "out_segm"),
                 ("outputnode.out_tpms", "out_tpms"),
+                ("outputnode.base_segm", "base_segm"),
             ]),
         ])
         # fmt: on
